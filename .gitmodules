@@ -4,3 +4,6 @@
 [submodule "3rd-party/volk"]
 	path = 3rd-party/volk
 	url = https://github.com/zeux/volk.git
+[submodule "3rd-party/cglm"]
+	path = 3rd-party/cglm
+	url = https://github.com/recp/cglm.git
