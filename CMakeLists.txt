@@ -11,7 +11,18 @@ add_subdirectory(3rd-party/volk)
 add_subdirectory(3rd-party/cglm)
 set(CGLM_SHARED OFF CACHE BOOL "Shared build" FORCE)
 set(CGLM_STATIC ON  CACHE BOOL "Static build" FORCE)
-target_compile_definitions(cglm PUBLIC CGLM_FORCE_DEPTH_ZERO_TO_ONE CGLM_FORCE_LEFT_HANDED)
+target_compile_definitions(cglm PUBLIC CGLM_FORCE_DEPTH_ZERO_TO_ONE)
+
+add_executable(font_tool
+                  src/main.c
+                  src/application.c
+                  src/window/window.c
+                  src/window/input_callbacks.c
+                  include/application.h
+                  include/window/window.h
+                  include/window/window_errors.h
+                  include/window/input_callbacks.h
+               )
 
 add_executable(font_tool src/main.c)
 
