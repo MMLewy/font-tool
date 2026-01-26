@@ -20,11 +20,13 @@ add_executable(font_tool
                   src/globals.c
                   src/window/window.c
                   src/window/input_callbacks.c
+                  src/graphics/graphics.c
                   include/application.h
                   include/globals.h
                   include/window/window.h
                   include/window/window_errors.h
                   include/window/input_callbacks.h
+                  include/graphics/graphics.h
                )
 
 if(${CMAKE_BUILD_TYPE} STREQUAL "Debug")
