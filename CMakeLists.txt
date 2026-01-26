@@ -17,9 +17,11 @@ target_compile_definitions(cglm PUBLIC CGLM_FORCE_DEPTH_ZERO_TO_ONE)
 add_executable(font_tool
                   src/main.c
                   src/application.c
+                  src/globals.c
                   src/window/window.c
                   src/window/input_callbacks.c
                   include/application.h
+                  include/globals.h
                   include/window/window.h
                   include/window/window_errors.h
                   include/window/input_callbacks.h
