@@ -11,7 +11,6 @@ const uint32_t APPLICATION_VERSION = VK_MAKE_VERSION(1, 0, 0);
 
 #ifdef DEBUG
 
-#include <stdio.h>
 #include <stdlib.h>
 
 void fn_assert(bool condition, const char* msg, const char* file, uint32_t line)
