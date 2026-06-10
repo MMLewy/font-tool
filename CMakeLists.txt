@@ -6,13 +6,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(use_wayland "If this option is set, wayland will be used instead of X11. Default value OFF." OFF)
 
-add_subdirectory(3rd-party/glfw)
-add_subdirectory(3rd-party/volk)
 
-add_subdirectory(3rd-party/cglm)
-set(CGLM_SHARED OFF CACHE BOOL "Shared build" FORCE)
-set(CGLM_STATIC ON  CACHE BOOL "Static build" FORCE)
-target_compile_definitions(cglm PUBLIC CGLM_FORCE_DEPTH_ZERO_TO_ONE)
 
 add_executable(font_tool
                   src/main.c
@@ -41,20 +35,32 @@ target_compile_definitions(font_tool PUBLIC GLFW_INCLUDE_NONE)
 target_compile_options(font_tool PRIVATE -std=c23)
 
 if(WIN32)
-   target_compile_definitions(font_tool PUBLIC GLFW_EXPOSE_NATIVE_WIN32 GLFW_EXPOSE_NATIVE_WGL)
+   target_compile_definitions(font_tool PUBLIC GLFW_EXPOSE_NATIVE_WIN32 GLFW_EXPOSE_NATIVE_WGL VK_USE_PLATFORM_WIN32_KHR)
+   set(VOLK_STATIC_DEFINES VK_USE_PLATFORM_WIN32_KHR)
 
    if(NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
       target_link_options(font_tool PRIVATE -mwindows)
    endif()
 elseif(APPLE)
-   target_compile_definitions(font_tool PUBLIC GLFW_EXPOSE_NATIVE_COCOA GLFW_EXPOSE_NATIVE_NSGL)
+   target_compile_definitions(font_tool PUBLIC GLFW_EXPOSE_NATIVE_COCOA GLFW_EXPOSE_NATIVE_NSGL VK_USE_PLATFORM_MACOS_MVK)
+   set(VOLK_STATIC_DEFINES VK_USE_PLATFORM_MACOS_MVK)
 else()
    if(${use_wayland})
-      target_compile_definitions(font_tool PUBLIC GLFW_EXPOSE_NATIVE_WAYLAND)
+      target_compile_definitions(font_tool PUBLIC GLFW_EXPOSE_NATIVE_WAYLAND VK_USE_PLATFORM_WAYLAND_KHR)
+      set(VOLK_STATIC_DEFINES VK_USE_PLATFORM_WAYLAND_KHR)
    else()
-      target_compile_definitions(font_tool PUBLIC GLFW_EXPOSE_NATIVE_X11 GLFW_EXPOSE_NATIVE_GLX)
+      target_compile_definitions(font_tool PUBLIC GLFW_EXPOSE_NATIVE_X11 GLFW_EXPOSE_NATIVE_GLX VK_USE_PLATFORM_XLIB_KHR)
+      set(VOLK_STATIC_DEFINES VK_USE_PLATFORM_XLIB_KHR)
    endif()
 endif()
+
+add_subdirectory(3rd-party/glfw)
+add_subdirectory(3rd-party/volk)
+
+add_subdirectory(3rd-party/cglm)
+set(CGLM_SHARED OFF CACHE BOOL "Shared build" FORCE)
+set(CGLM_STATIC ON  CACHE BOOL "Static build" FORCE)
+target_compile_definitions(cglm PUBLIC CGLM_FORCE_DEPTH_ZERO_TO_ONE)
 
 target_link_libraries(font_tool
                         PRIVATE glfw

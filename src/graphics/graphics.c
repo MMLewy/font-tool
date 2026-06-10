@@ -1,5 +1,6 @@
 #include <graphics/graphics.h>
 
+#include <window/window_creation_info.h>
 #include <globals.h>
 #include <volk.h>
 #include <stdlib.h>
@@ -44,15 +45,17 @@ VkDebugUtilsMessengerEXT debug_messenger;
 
 // Private global variables.
 static VkInstance graphics_vulkan_instance = VK_NULL_HANDLE;
+static VkSurfaceKHR graphics_surface = VK_NULL_HANDLE;
 static VkDevice graphics_logical_device = VK_NULL_HANDLE;
 
 
-// Private functions declarations.
+// Private function declarations.
 static Graphics_error graphics_create_vulkan_instance();
 static VkPhysicalDevice graphics_pick_device(
                                             const char* desired_extensions[],
                                             uint32_t desired_extensions_count,
                                             VkPhysicalDeviceFeatures* desired_features);
+static VkSurfaceKHR graphics_create_surface(); 
 static Graphics_queue_properties graphics_pick_queue_family(VkPhysicalDevice device);
 
 Graphics_error graphics_init()
@@ -71,6 +74,9 @@ Graphics_error graphics_init()
     assert(vk_result == VK_SUCCESS);
 #endif
 
+    graphics_surface = graphics_create_surface();
+    if(graphics_surface == VK_NULL_HANDLE) return GRAPHICS_VULKAN_SURFACE_CREATE;
+    
     const char* desired_extensions[] = 
     {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -138,6 +144,7 @@ Graphics_error graphics_init()
 void graphics_cleanup()
 {
     if(graphics_logical_device != VK_NULL_HANDLE) vkDestroyDevice(graphics_logical_device, NULL);
+    if(graphics_surface != VK_NULL_HANDLE) vkDestroySurfaceKHR(graphics_vulkan_instance, graphics_surface, NULL);
 
 #ifdef DEBUG
     if(graphics_vulkan_instance != VK_NULL_HANDLE) vkDestroyDebugUtilsMessengerEXT(graphics_vulkan_instance, debug_messenger, NULL);
@@ -245,6 +252,67 @@ static Graphics_error graphics_create_vulkan_instance()
     return GRAPHICS_OK;
 }
 
+static VkSurfaceKHR graphics_create_surface()
+{
+    VkSurfaceKHR surface;
+    VkResult result = VK_SUCCESS;
+    Window_creation_info window_info = window_get_creation_info();
+
+#ifdef _WIN32
+
+    VkWin32SurfaceCreateInfoKHR surface_create_info = {
+        .sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
+        .pNext = VK_NULL_HANDLE,
+        .flags = 0,
+        .hwnd = window_info.hwnd,
+        .hinstance = window_info.hinstance
+    };
+
+    result = vkCreateWin32SurfaceKHR(graphics_vulkan_instance, &surface_create_info, VK_NULL_HANDLE, &surface);
+
+#elif defined(__APPLE__)
+
+    VkMacOSSurfaceCreateInfoMVK  surface_create_info = {
+        .sType = VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK,
+        .pNext = VK_NULL_HANDLE,
+        .flags = 0,
+        .pView = window_info.pView
+    };
+
+    result = vkCreateMacOSSurfaceMVK(graphics_vulkan_instance, &surface_create_info, VK_NULL_HANDLE, &surface);
+
+#elif defined(GLFW_EXPOSE_NATIVE_WAYLAND)
+
+
+    VkWaylandSurfaceCreateInfoKHR  surface_create_info = {
+        .sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
+        .pNext = VK_NULL_HANDLE,
+        .flags = 0,
+        .display = window_info.display,
+        .surface = window_info.surface
+    };
+
+    result = vkCreateWaylandSurfaceKHR(graphics_vulkan_instance, &surface_create_info, VK_NULL_HANDLE, &surface);
+
+#else 
+
+// TODO: MID_PRIO Change from Xlib to Xcb after GLFW 3.5 release.
+    VkWaylandSurfaceCreateInfoKHR  surface_create_info = {
+        .sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
+        .pNext = VK_NULL_HANDLE,
+        .flags = 0,
+        .dpy = window_info.dpy,
+        .window = window_info.window
+    };
+
+    result = vkCreateXlibSurfaceKHR(graphics_vulkan_instance, &surface_create_info, VK_NULL_HANDLE, &surface);
+
+#endif
+
+    if(result != VK_SUCCESS) return VK_NULL_HANDLE;
+
+    return surface;
+}
 
 static bool graphics_is_device_usable(
                                         VkPhysicalDevice device,
