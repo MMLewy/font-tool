@@ -1,7 +1,6 @@
 #include <window/window.h>
 
-#include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
+#include <window/window_creation_info.h>
 #include <window/input_callbacks.h>
 
 #include <stdio.h>
@@ -80,6 +79,33 @@ inline void window_poll_events()
     glfwPollEvents();
 }
 
+Window_creation_info window_get_creation_info()
+{
+    Window_creation_info creation_info;
+
+#ifdef _WIN32
+
+    creation_info.hwnd = glfwGetWin32Window(wnd);
+    creation_info.hinstance = GetModuleHandle(NULL);
+
+#elif defined(__APPLE__)
+
+    creation_info.pView = glfwGetCocoaView(wnd);
+
+#elif defined(GLFW_EXPOSE_NATIVE_WAYLAND)
+
+    creation_info.display = glfwGetWaylandDisplay();
+    creation_info.surface = glfwGetWaylandWindow(wnd);
+
+#else 
+
+// TODO: MID_PRIO Change from Xlib to Xcb after GLFW 3.5 release.
+    creation_info.dpy = glfwGetX11Display();
+    creation_info.window = glfwGetX11Window(wnd);
+
+#endif
+}
+
 #ifdef _WIN32
 void window_alert(char const *message)
 {
@@ -88,5 +114,6 @@ void window_alert(char const *message)
 #elifdef __APPLE__
 
 #else
+
 
 #endif

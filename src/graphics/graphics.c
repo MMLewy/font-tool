@@ -166,13 +166,13 @@ static Graphics_error graphics_create_vulkan_instance()
         VK_KHR_SURFACE_EXTENSION_NAME,
 #ifdef _WIN32
         "VK_KHR_win32_surface",
-#elifdef __APPLE__
+#elif defined(__APPLE__)
         "VK_EXT_metal_surface", // Other possible extension: VK_MVK_macos_surface
         VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
-#elifdef USE_WAYLAND
+#elif defined(GLFW_EXPOSE_NATIVE_WAYLAND)
         "VK_KHR_wayland_surface",
 #else
-        "VK_KHR_xlib_surface", // Other possible extension: VK_KHR_xcb_surface
+        "VK_KHR_xlib_surface", // TODO: MID_PRIO Change from Xlib to Xcb after GLFW 3.5 release.
 #endif
 
 #ifdef DEBUG

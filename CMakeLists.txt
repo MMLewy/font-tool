@@ -4,7 +4,7 @@ project(font_tool VERSION 1.0.0 LANGUAGES C)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(use_wayland "If this option is set, wayland will be used instead of X11. Default value ON." ON)
+option(use_wayland "If this option is set, wayland will be used instead of X11. Default value OFF." OFF)
 
 add_subdirectory(3rd-party/glfw)
 add_subdirectory(3rd-party/volk)
@@ -24,6 +24,7 @@ add_executable(font_tool
                   include/application.h
                   include/globals.h
                   include/window/window.h
+                  include/window/window_creation_info.h
                   include/window/window_errors.h
                   include/window/input_callbacks.h
                   include/graphics/graphics.h
@@ -49,7 +50,7 @@ elseif(APPLE)
    target_compile_definitions(font_tool PUBLIC GLFW_EXPOSE_NATIVE_COCOA GLFW_EXPOSE_NATIVE_NSGL)
 else()
    if(${use_wayland})
-      target_compile_definitions(font_tool PUBLIC GLFW_EXPOSE_NATIVE_WAYLAND USE_WAYLAND)
+      target_compile_definitions(font_tool PUBLIC GLFW_EXPOSE_NATIVE_WAYLAND)
    else()
       target_compile_definitions(font_tool PUBLIC GLFW_EXPOSE_NATIVE_X11 GLFW_EXPOSE_NATIVE_GLX)
    endif()
