@@ -54,9 +54,10 @@ static Graphics_error graphics_create_vulkan_instance();
 static VkPhysicalDevice graphics_pick_device(
                                             const char* desired_extensions[],
                                             uint32_t desired_extensions_count,
-                                            VkPhysicalDeviceFeatures* desired_features);
+                                            VkPhysicalDeviceFeatures* desired_features,
+                                            VkQueueFlags desired_queue_features);
 static VkSurfaceKHR graphics_create_surface(); 
-static Graphics_queue_properties graphics_pick_queue_family(VkPhysicalDevice device);
+static Graphics_queue_properties graphics_pick_queue_family(VkPhysicalDevice device, VkQueueFlags desired_queue_features);
 
 Graphics_error graphics_init()
 {
@@ -94,7 +95,9 @@ Graphics_error graphics_init()
     desired_features.geometryShader = VK_TRUE;
     desired_features.tessellationShader = VK_TRUE;
 
-    VkPhysicalDevice physical_device = graphics_pick_device(desired_extensions, desired_extensions_count, &desired_features);
+    VkQueueFlags desired_queue_properties = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT;
+
+    VkPhysicalDevice physical_device = graphics_pick_device(desired_extensions, desired_extensions_count, &desired_features, desired_queue_properties);
     if(physical_device == VK_NULL_HANDLE) return GRAPHICS_VULKAN_NO_USABLE_PHYSICAL_DEVICE;
 
 #ifdef DEBUG
@@ -104,7 +107,7 @@ Graphics_error graphics_init()
     g_printf("Chosen device's name: %s\n", properties.deviceName);
 #endif
 
-    Graphics_queue_properties queue_family_properties = graphics_pick_queue_family(physical_device);
+    Graphics_queue_properties queue_family_properties = graphics_pick_queue_family(physical_device, desired_queue_properties);
     if(queue_family_properties.index == UINT32_MAX) return GRAPHICS_VULKAN_NO_USABLE_QUEUE_FAMILY;
 
     float queue_priorities[2] = {1.0f, 0.5f};
@@ -318,8 +321,12 @@ static bool graphics_is_device_usable(
                                         VkPhysicalDevice device,
                                         const char* desired_extensions[],
                                         uint32_t desired_extensions_count,
-                                        VkPhysicalDeviceFeatures* desired_features)
+                                        VkPhysicalDeviceFeatures* desired_features,
+                                        VkQueueFlags desired_queue_features
+                                     )
 {
+    assert(graphics_surface != VK_NULL_HANDLE);
+
     uint32_t extension_count = 0;
     vkEnumerateDeviceExtensionProperties(device, NULL, &extension_count, NULL);
 
@@ -360,13 +367,41 @@ static bool graphics_is_device_usable(
         }
     }
 
-    return extensions_present && features_present;
+    uint32_t queue_families_count = 0;
+
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_families_count, VK_NULL_HANDLE);
+
+    VkQueueFamilyProperties* queue_families = (VkQueueFamilyProperties*)malloc(queue_families_count * sizeof(VkQueueFamilyProperties));
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_families_count, queue_families);
+
+    bool queue_features_present = false, presentation_feature_present = false; 
+    for(uint32_t i = 0; i < queue_families_count; i++)
+    {
+        if(queue_families[i].queueCount < 1) continue;
+
+        if((queue_families[i].queueFlags & desired_queue_features) == desired_queue_features)
+        {
+            queue_features_present = true;
+        }
+
+        VkBool32 presentation_supported = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, graphics_surface, &presentation_supported);
+
+        if(presentation_supported) presentation_feature_present = true;
+
+        if(queue_features_present && presentation_feature_present) break;
+    }
+
+    free(queue_families);
+
+    return extensions_present && features_present && queue_features_present && presentation_feature_present;
 }
 
 static VkPhysicalDevice graphics_pick_device(
                                         const char* desired_extensions[],
                                         uint32_t desired_extensions_count,
-                                        VkPhysicalDeviceFeatures* desired_features)
+                                        VkPhysicalDeviceFeatures* desired_features,
+                                        VkQueueFlags desired_queue_features)
 {
     VkPhysicalDevice picked_device = VK_NULL_HANDLE;
     
@@ -384,7 +419,7 @@ static VkPhysicalDevice graphics_pick_device(
 
     for(uint32_t i = 0; i < device_count; i++)
     {
-        if(!graphics_is_device_usable(devices[i], desired_extensions, desired_extensions_count, desired_features)) continue;
+        if(!graphics_is_device_usable(devices[i], desired_extensions, desired_extensions_count, desired_features, desired_queue_features)) continue;
 
         VkPhysicalDeviceProperties properties;
         vkGetPhysicalDeviceProperties(devices[i], &properties);
@@ -419,10 +454,11 @@ static VkPhysicalDevice graphics_pick_device(
     return picked_device;
 }
 
-static Graphics_queue_properties graphics_pick_queue_family(VkPhysicalDevice device)
+static Graphics_queue_properties graphics_pick_queue_family(VkPhysicalDevice device, VkQueueFlags desired_queue_features)
 {
+    assert(graphics_surface != VK_NULL_HANDLE);
+
     uint32_t queue_families_count = 0;
-    VkQueueFlags desired_properties = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT;
     Graphics_queue_properties queue_family_properties = {.index = UINT32_MAX, .properties = {}};
 
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_families_count, VK_NULL_HANDLE);
@@ -432,7 +468,12 @@ static Graphics_queue_properties graphics_pick_queue_family(VkPhysicalDevice dev
 
     for(uint32_t i = 0; i < queue_families_count; i++)
     {
-        if((queue_families[i].queueCount > 0) && (queue_families[i].queueFlags & desired_properties == desired_properties))
+        if(queue_families[i].queueCount < 1) continue;
+
+        VkBool32 presentation_supported = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, graphics_surface, &presentation_supported);
+
+        if(((queue_families[i].queueFlags & desired_queue_features) == desired_queue_features) && presentation_supported == VK_TRUE)
         {
             queue_family_properties.index = i;
             queue_family_properties.properties = queue_families[i];
