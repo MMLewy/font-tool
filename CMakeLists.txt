@@ -7,7 +7,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(use_wayland "If this option is set, wayland will be used instead of X11. Default value OFF." OFF)
 
 
-
 add_executable(font_tool
                   src/main.c
                   src/application.c
@@ -61,6 +60,8 @@ add_subdirectory(3rd-party/cglm)
 set(CGLM_SHARED OFF CACHE BOOL "Shared build" FORCE)
 set(CGLM_STATIC ON  CACHE BOOL "Static build" FORCE)
 target_compile_definitions(cglm PUBLIC CGLM_FORCE_DEPTH_ZERO_TO_ONE)
+
+target_compile_options(font_tool PUBLIC -Wall -Wextra -Wpedantic -Werror)
 
 target_link_libraries(font_tool
                         PRIVATE glfw
