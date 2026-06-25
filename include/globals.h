@@ -6,6 +6,8 @@
 extern const char* const APPLICATION_NAME;
 extern const uint32_t APPLICATION_VERSION;
 
+#define UNUSED(x) (void)x
+
 #ifdef DEBUG
 
 #include <stdio.h>
