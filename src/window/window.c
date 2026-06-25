@@ -2,7 +2,7 @@
 
 #include <window/window_creation_info.h>
 #include <window/input_callbacks.h>
-
+#include <globals.h>
 #include <stdio.h>
 
 static GLFWwindow *wnd;
@@ -79,14 +79,14 @@ inline void window_poll_events()
     glfwPollEvents();
 }
 
-Window_creation_info window_get_creation_info()
+void window_get_creation_info(Window_creation_info* info)
 {
-    Window_creation_info creation_info;
+    assert(info != NULL);
 
 #ifdef _WIN32
 
-    creation_info.hwnd = glfwGetWin32Window(wnd);
-    creation_info.hinstance = GetModuleHandle(NULL);
+    info->hwnd = glfwGetWin32Window(wnd);
+    info->hinstance = GetModuleHandle(NULL);
 
 #elif defined(__APPLE__)
 

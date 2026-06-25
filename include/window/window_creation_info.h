@@ -31,6 +31,6 @@ Window              window;
 
 } Window_creation_info;
 
-Window_creation_info window_get_creation_info();
+void window_get_creation_info(Window_creation_info* info);
 
 #endif
