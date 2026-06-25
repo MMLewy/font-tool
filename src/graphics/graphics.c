@@ -21,6 +21,9 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
     void* pUserData)
 {
+    UNUSED(messageSeverity);
+    UNUSED(messageType);
+    UNUSED(pUserData);
 
     g_printf("validation layer: %s\n", pCallbackData->pMessage);
 
@@ -40,10 +43,12 @@ VkDebugUtilsMessengerEXT debug_messenger;
 
 #endif
 
-// TODO: MID_PRIO Future plans - redo graphics module in such manner so it works using state machine.
-// State machine structure would help properly reinitialize whole graphics module.
+// TODO: MID_PRIO Improve state machine to support swapchain recreating.
 
 // Private global variables.
+static Graphics_state_machine graphics_sm = GRAPHICS_SM_PRE_INIT;
+static Graphics_error graphics_last_error = GRAPHICS_OK;
+static Graphics_notification graphics_notification = {};
 static VkInstance graphics_vulkan_instance = VK_NULL_HANDLE;
 static VkSurfaceKHR graphics_surface = VK_NULL_HANDLE;
 static VkDevice graphics_logical_device = VK_NULL_HANDLE;
@@ -59,7 +64,77 @@ static VkPhysicalDevice graphics_pick_device(
 static VkSurfaceKHR graphics_create_surface(); 
 static Graphics_queue_properties graphics_pick_queue_family(VkPhysicalDevice device, VkQueueFlags desired_queue_features);
 
-Graphics_error graphics_init()
+// Private state machine functions.
+static inline void graphics_sm_state_transition(Graphics_state_machine state);
+static inline void graphics_sm_state_transition_error(Graphics_error error);
+static Graphics_error graphics_sm_pre_init();
+static Graphics_error graphics_sm_init();
+
+// Module's main function.
+Graphics_error graphics_state_machine_loop()
+{
+    Graphics_error state_error;
+
+    switch(graphics_sm)
+    {
+    case GRAPHICS_SM_PRE_INIT:
+        state_error = graphics_sm_pre_init();
+
+        if(state_error == GRAPHICS_OK)  graphics_sm_state_transition(GRAPHICS_SM_WAIT_FOR_WINDOW_CREATION);
+        else                            graphics_sm_state_transition_error(state_error);
+
+        break;
+
+    case GRAPHICS_SM_WAIT_FOR_WINDOW_CREATION:
+        if(graphics_notification.window_created)
+        {
+            graphics_notification.window_created = 0;
+            graphics_sm_state_transition(GRAPHICS_SM_INIT);
+        }
+
+        break;
+
+    case GRAPHICS_SM_INIT:
+        state_error = graphics_sm_init();
+
+        if(state_error == GRAPHICS_OK)  graphics_sm_state_transition(GRAPHICS_SM_POST_INIT);
+        else                            graphics_sm_state_transition_error(state_error);
+
+        break;
+
+    case GRAPHICS_SM_ERROR:
+        break;
+
+    default:
+        break;
+    }
+
+    return graphics_last_error;
+}
+
+inline Graphics_state_machine graphics_sm_get_state()
+{
+    return graphics_sm;
+}
+
+inline void graphics_sm_notify(Graphics_notification notification)
+{
+    graphics_notification.value |= notification.value;
+}
+
+static inline void graphics_sm_state_transition(Graphics_state_machine state)
+{
+    graphics_sm = state;
+}
+
+static inline void graphics_sm_state_transition_error(Graphics_error error)
+{
+    graphics_last_error = error;
+    graphics_sm_state_transition(GRAPHICS_SM_ERROR);
+}
+
+// GRAPHICS_SM_PRE_INIT
+static Graphics_error graphics_sm_pre_init()
 {
     VkResult vk_result = VK_SUCCESS;
 
@@ -74,6 +149,13 @@ Graphics_error graphics_init()
     vk_result = vkCreateDebugUtilsMessengerEXT(graphics_vulkan_instance, &debug_messenger_create_info, NULL, &debug_messenger);
     assert(vk_result == VK_SUCCESS);
 #endif
+
+    return GRAPHICS_OK;
+}
+
+static Graphics_error graphics_sm_init()
+{
+    VkResult vk_result = VK_SUCCESS;
 
     graphics_surface = graphics_create_surface();
     if(graphics_surface == VK_NULL_HANDLE) return GRAPHICS_VULKAN_SURFACE_CREATE;
@@ -158,8 +240,6 @@ void graphics_cleanup()
     volkFinalize();
 }
 
-
-// Private functions
 static Graphics_error graphics_create_vulkan_instance()
 {
 #ifdef DEBUG
@@ -200,9 +280,9 @@ static Graphics_error graphics_create_vulkan_instance()
 
     // TODO: LOW_PRIO Improve this loop
     uint32_t found_extension_count = 0;
-    for(int i = 0; i < desired_extensions_count; i++)
+    for(uint32_t i = 0; i < desired_extensions_count; i++)
     {
-        for(int j = 0; j < extension_count; j++)
+        for(uint32_t j = 0; j < extension_count; j++)
         {
             if(strcmp(desired_extensions[i], extensions[j].extensionName) == 0)
             {
@@ -257,9 +337,11 @@ static Graphics_error graphics_create_vulkan_instance()
 
 static VkSurfaceKHR graphics_create_surface()
 {
-    VkSurfaceKHR surface;
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkResult result = VK_SUCCESS;
-    Window_creation_info window_info = window_get_creation_info();
+    Window_creation_info window_info = {};
+
+    window_get_creation_info(&window_info);
 
 #ifdef _WIN32
 
@@ -335,9 +417,9 @@ static bool graphics_is_device_usable(
 
     // TODO: LOW_PRIO Improve this loop
     uint32_t found_extension_count = 0;
-    for(int i = 0; i < desired_extensions_count; i++)
+    for(uint32_t i = 0; i < desired_extensions_count; i++)
     {
-        for(int j = 0; j < extension_count; j++)
+        for(uint32_t j = 0; j < extension_count; j++)
         {
             if(strcmp(desired_extensions[i], extensions[j].extensionName) == 0)
             {
@@ -387,7 +469,7 @@ static bool graphics_is_device_usable(
         VkBool32 presentation_supported = VK_FALSE;
         vkGetPhysicalDeviceSurfaceSupportKHR(device, i, graphics_surface, &presentation_supported);
 
-        if(presentation_supported) presentation_feature_present = true;
+        if(presentation_supported == VK_TRUE) presentation_feature_present = true;
 
         if(queue_features_present && presentation_feature_present) break;
     }
@@ -431,6 +513,7 @@ static VkPhysicalDevice graphics_pick_device(
         {
             case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: device_usabilty[i] += 100; break;
             case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   device_usabilty[i] += 200; break;
+            default: break;
         }
 
         for(uint32_t j = 0; j < sizeof(VkPhysicalDeviceFeatures) / sizeof(VkBool32); j++)

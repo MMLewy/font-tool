@@ -6,16 +6,35 @@
 
 bool app_init()
 {
-    Graphics_error error = graphics_init();
-    assert(error == GRAPHICS_OK);
+    Graphics_notification notification = {};
+
+    if(window_create("Test") != WINDOW_OK) return false;
+    notification.window_created = 1;
+    graphics_sm_notify(notification);
+
+    Graphics_error error = GRAPHICS_OK;
+    while(graphics_sm_get_state() != GRAPHICS_SM_WAIT_FOR_WINDOW_CREATION)
+    {
+        error = graphics_state_machine_loop();
+        if(error != GRAPHICS_OK) break;
+    }
+
+    // TODO: MID_PRIO Do proper error handling. Maybe alert window with error information.
+    if(error != GRAPHICS_OK) return false;
+
+    while(graphics_sm_get_state() != GRAPHICS_SM_POST_INIT)
+    {
+        error = graphics_state_machine_loop();
+        if(error != GRAPHICS_OK) break;
+    }
+
+    if(error != GRAPHICS_OK) return false;
 
     return true;
 }
 
 bool app_run()
 {
-    if(window_create("Test") != WINDOW_OK) return false;
-
     while(!window_should_close())
     {
         window_poll_events();
