@@ -14,7 +14,9 @@ typedef enum Graphics_state_machine_t {
 
     GRAPHICS_SM_INIT,
 
-    GRAPHICS_SM_POST_INIT,
+    GRAPHICS_SM_SWAPCHAIN_CREATION,
+
+    GRAPHICS_SM_RENDER,
 
     GRAPHICS_SM_ERROR,
 

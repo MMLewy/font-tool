@@ -13,21 +13,13 @@ bool app_init()
     graphics_sm_notify(notification);
 
     Graphics_error error = GRAPHICS_OK;
-    while(graphics_sm_get_state() != GRAPHICS_SM_WAIT_FOR_WINDOW_CREATION)
+    while(graphics_sm_get_state() != GRAPHICS_SM_RENDER)
     {
         error = graphics_state_machine_loop();
         if(error != GRAPHICS_OK) break;
     }
 
     // TODO: MID_PRIO Do proper error handling. Maybe alert window with error information.
-    if(error != GRAPHICS_OK) return false;
-
-    while(graphics_sm_get_state() != GRAPHICS_SM_POST_INIT)
-    {
-        error = graphics_state_machine_loop();
-        if(error != GRAPHICS_OK) break;
-    }
-
     if(error != GRAPHICS_OK) return false;
 
     return true;

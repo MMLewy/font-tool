@@ -6,6 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Temporary
+#define SETTINGS_WIDTH 800
+#define SETTINGS_HEIGHT 600
+
 typedef struct Graphics_queue_properties_t
 {
     uint32_t index;
@@ -49,9 +53,11 @@ VkDebugUtilsMessengerEXT debug_messenger;
 static Graphics_state_machine graphics_sm = GRAPHICS_SM_PRE_INIT;
 static Graphics_error graphics_last_error = GRAPHICS_OK;
 static Graphics_notification graphics_notification = {};
-static VkInstance graphics_vulkan_instance = VK_NULL_HANDLE;
-static VkSurfaceKHR graphics_surface = VK_NULL_HANDLE;
-static VkDevice graphics_logical_device = VK_NULL_HANDLE;
+static VkInstance graphics_vulkan_instance = NULL;
+static VkSurfaceKHR graphics_surface = NULL;
+static VkSwapchainKHR graphics_swapchain = NULL;
+static VkPhysicalDevice graphics_physical_device = NULL;
+static VkDevice graphics_logical_device = NULL;
 
 
 // Private function declarations.
@@ -69,6 +75,7 @@ static inline void graphics_sm_state_transition(Graphics_state_machine state);
 static inline void graphics_sm_state_transition_error(Graphics_error error);
 static Graphics_error graphics_sm_pre_init();
 static Graphics_error graphics_sm_init();
+static Graphics_error graphics_sm_swapchain_creation();
 
 // Module's main function.
 Graphics_error graphics_state_machine_loop()
@@ -97,7 +104,15 @@ Graphics_error graphics_state_machine_loop()
     case GRAPHICS_SM_INIT:
         state_error = graphics_sm_init();
 
-        if(state_error == GRAPHICS_OK)  graphics_sm_state_transition(GRAPHICS_SM_POST_INIT);
+        if(state_error == GRAPHICS_OK)  graphics_sm_state_transition(GRAPHICS_SM_SWAPCHAIN_CREATION);
+        else                            graphics_sm_state_transition_error(state_error);
+
+        break;
+
+    case GRAPHICS_SM_SWAPCHAIN_CREATION:
+        state_error = graphics_sm_swapchain_creation();
+
+        if(state_error == GRAPHICS_OK)  graphics_sm_state_transition(GRAPHICS_SM_RENDER);
         else                            graphics_sm_state_transition_error(state_error);
 
         break;
@@ -158,7 +173,7 @@ static Graphics_error graphics_sm_init()
     VkResult vk_result = VK_SUCCESS;
 
     graphics_surface = graphics_create_surface();
-    if(graphics_surface == VK_NULL_HANDLE) return GRAPHICS_VULKAN_SURFACE_CREATE;
+    if(graphics_surface == NULL) return GRAPHICS_VULKAN_SURFACE_CREATE;
     
     const char* desired_extensions[] = 
     {
@@ -179,17 +194,17 @@ static Graphics_error graphics_sm_init()
 
     VkQueueFlags desired_queue_properties = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT;
 
-    VkPhysicalDevice physical_device = graphics_pick_device(desired_extensions, desired_extensions_count, &desired_features, desired_queue_properties);
-    if(physical_device == VK_NULL_HANDLE) return GRAPHICS_VULKAN_NO_USABLE_PHYSICAL_DEVICE;
+    graphics_physical_device = graphics_pick_device(desired_extensions, desired_extensions_count, &desired_features, desired_queue_properties);
+    if(graphics_physical_device == NULL) return GRAPHICS_VULKAN_NO_USABLE_PHYSICAL_DEVICE;
 
 #ifdef DEBUG
     VkPhysicalDeviceProperties properties;
-    vkGetPhysicalDeviceProperties(physical_device, &properties);
+    vkGetPhysicalDeviceProperties(graphics_physical_device, &properties);
     
     g_printf("Chosen device's name: %s\n", properties.deviceName);
 #endif
 
-    Graphics_queue_properties queue_family_properties = graphics_pick_queue_family(physical_device, desired_queue_properties);
+    Graphics_queue_properties queue_family_properties = graphics_pick_queue_family(graphics_physical_device, desired_queue_properties);
     if(queue_family_properties.index == UINT32_MAX) return GRAPHICS_VULKAN_NO_USABLE_QUEUE_FAMILY;
 
     float queue_priorities[2] = {1.0f, 0.5f};
@@ -197,7 +212,7 @@ static Graphics_error graphics_sm_init()
     VkDeviceQueueCreateInfo queue_create_info = 
     {
         .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        .pNext = VK_NULL_HANDLE,
+        .pNext = NULL,
         .flags = 0,
         .queueFamilyIndex = queue_family_properties.index,
         .queueCount = 2,
@@ -207,7 +222,7 @@ static Graphics_error graphics_sm_init()
     VkDeviceCreateInfo device_create_info =
     {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext = VK_NULL_HANDLE,
+        .pNext = NULL,
         .flags = 0,
         .queueCreateInfoCount = 1,
         .pQueueCreateInfos = &queue_create_info,
@@ -218,7 +233,7 @@ static Graphics_error graphics_sm_init()
         .pEnabledFeatures = &desired_features
     };
 
-    vk_result = vkCreateDevice(physical_device, &device_create_info, NULL, &graphics_logical_device);
+    vk_result = vkCreateDevice(graphics_physical_device, &device_create_info, NULL, &graphics_logical_device);
     if(vk_result != VK_SUCCESS) return GRAPHICS_VULKAN_LOGICAL_DEVICE_CREATE;
 
     volkLoadDevice(graphics_logical_device);
@@ -226,16 +241,135 @@ static Graphics_error graphics_sm_init()
     return GRAPHICS_OK;
 }
 
+static Graphics_error graphics_sm_swapchain_creation()
+{
+    assert(graphics_surface != NULL);
+    assert(graphics_physical_device != NULL);
+    assert(graphics_logical_device != NULL);
+
+    VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
+    VkExtent2D image_size = {};
+    VkSurfaceFormatKHR image_format = {};
+
+    uint32_t presentation_mode_count = 0;
+
+    VkResult vk_result = vkGetPhysicalDeviceSurfacePresentModesKHR(graphics_physical_device, graphics_surface, &presentation_mode_count, NULL);
+    if(vk_result != VK_SUCCESS) return GRAPHICS_VULKAN_SWAPCHAIN_CREATE;
+    VkPresentModeKHR* presetation_modes = (VkPresentModeKHR*)malloc(presentation_mode_count * sizeof(VkPresentModeKHR));
+
+    vk_result = vkGetPhysicalDeviceSurfacePresentModesKHR(graphics_physical_device, graphics_surface, &presentation_mode_count, presetation_modes);
+    if(vk_result != VK_SUCCESS)
+    {
+        free(presetation_modes);
+        return GRAPHICS_VULKAN_SWAPCHAIN_CREATE;
+    }
+
+    for(uint32_t i = 0; i < presentation_mode_count; i++)
+    {
+        if(presetation_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+    }
+
+    free(presetation_modes);
+
+    VkSurfaceCapabilitiesKHR surface_capabilities = {};
+    vk_result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(graphics_physical_device, graphics_surface, &surface_capabilities);
+    if(vk_result != VK_SUCCESS) return GRAPHICS_VULKAN_SWAPCHAIN_CREATE;
+
+    if(surface_capabilities.currentExtent.width == 0xFFFFFFFF)
+    {
+        image_size.width = SETTINGS_WIDTH;
+        image_size.height = SETTINGS_HEIGHT;
+    }
+    else
+    {
+        image_size = surface_capabilities.currentExtent;
+    }
+
+    if(image_size.width < surface_capabilities.minImageExtent.width) image_size.width = surface_capabilities.minImageExtent.width;
+    if(image_size.width > surface_capabilities.maxImageExtent.width) image_size.width = surface_capabilities.maxImageExtent.width;
+
+    if(image_size.height < surface_capabilities.minImageExtent.height) image_size.height = surface_capabilities.minImageExtent.height;
+    if(image_size.height > surface_capabilities.maxImageExtent.height) image_size.height = surface_capabilities.maxImageExtent.height;
+
+    uint32_t formats_count = 0;
+
+    vk_result = vkGetPhysicalDeviceSurfaceFormatsKHR(graphics_physical_device, graphics_surface, &formats_count, NULL);
+    if(vk_result != VK_SUCCESS) return GRAPHICS_VULKAN_SWAPCHAIN_CREATE;
+    VkSurfaceFormatKHR* formats = (VkSurfaceFormatKHR*)malloc(formats_count * sizeof(VkSurfaceFormatKHR));
+
+    vk_result = vkGetPhysicalDeviceSurfaceFormatsKHR(graphics_physical_device, graphics_surface, &formats_count, formats);
+    if(vk_result != VK_SUCCESS) 
+    {
+        free(formats);
+        if(vk_result != VK_SUCCESS) return GRAPHICS_VULKAN_SWAPCHAIN_CREATE;
+    }
+
+    if(formats_count == 1 && formats[0].format == VK_FORMAT_UNDEFINED)
+    {
+        image_format.format = VK_FORMAT_B8G8R8A8_SRGB;
+        image_format.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    }
+    else
+    {
+        image_format = formats[0];
+        for(uint32_t i = 0; i < formats_count; i++)
+        {
+            if(formats[i].format == VK_FORMAT_B8G8R8A8_SRGB || formats[i].format == VK_FORMAT_R8G8B8A8_SRGB)
+            {
+                image_format = formats[i];
+            }
+        }
+    }
+
+    free(formats);
+
+    g_printf("Swapchain image size: %dx%d, Images count: %d, Presentation mode: %s.\n", 
+        image_size.width,
+        image_size.height,
+        surface_capabilities.minImageCount,
+        (present_mode == VK_PRESENT_MODE_MAILBOX_KHR ? "Mailbox" : "FIFO"));
+
+    VkSwapchainKHR old_swapchain = NULL;
+    VkSwapchainCreateInfoKHR swapchain_info = {
+        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .pNext = NULL,
+        .flags = 0,
+        .surface = graphics_surface,
+        .minImageCount = surface_capabilities.minImageCount,
+        .imageFormat = image_format.format,
+        .imageColorSpace = image_format.colorSpace,
+        .imageExtent = image_size,
+        .imageArrayLayers = 1,
+        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices = NULL,
+        .preTransform = surface_capabilities.currentTransform,
+        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode = present_mode,
+        .clipped = VK_TRUE,
+        .oldSwapchain = old_swapchain
+    };
+
+    vk_result = vkCreateSwapchainKHR(graphics_logical_device, &swapchain_info, NULL, &graphics_swapchain);
+    if(vk_result != VK_SUCCESS) return GRAPHICS_VULKAN_SWAPCHAIN_CREATE;
+
+    if(old_swapchain != NULL) vkDestroySwapchainKHR(graphics_logical_device, old_swapchain, NULL);
+
+    return GRAPHICS_OK;
+}
+
 void graphics_cleanup()
 {
-    if(graphics_logical_device != VK_NULL_HANDLE) vkDestroyDevice(graphics_logical_device, NULL);
-    if(graphics_surface != VK_NULL_HANDLE) vkDestroySurfaceKHR(graphics_vulkan_instance, graphics_surface, NULL);
+    if(graphics_swapchain != NULL) vkDestroySwapchainKHR(graphics_logical_device, graphics_swapchain, NULL);
+    if(graphics_logical_device != NULL) vkDestroyDevice(graphics_logical_device, NULL);
+    if(graphics_surface != NULL) vkDestroySurfaceKHR(graphics_vulkan_instance, graphics_surface, NULL);
 
 #ifdef DEBUG
-    if(graphics_vulkan_instance != VK_NULL_HANDLE) vkDestroyDebugUtilsMessengerEXT(graphics_vulkan_instance, debug_messenger, NULL);
+    if(graphics_vulkan_instance != NULL) vkDestroyDebugUtilsMessengerEXT(graphics_vulkan_instance, debug_messenger, NULL);
 #endif
 
-    if(graphics_vulkan_instance != VK_NULL_HANDLE) vkDestroyInstance(graphics_vulkan_instance, NULL);
+    if(graphics_vulkan_instance != NULL) vkDestroyInstance(graphics_vulkan_instance, NULL);
 
     volkFinalize();
 }
@@ -330,14 +464,14 @@ static Graphics_error graphics_create_vulkan_instance()
 
     VkResult result = vkCreateInstance(&instance_info, NULL, &graphics_vulkan_instance);
 
-    if(result != VK_SUCCESS || graphics_vulkan_instance == VK_NULL_HANDLE) return GRAPHICS_VULKAN_INSTANCE_CREATE;
+    if(result != VK_SUCCESS || graphics_vulkan_instance == NULL) return GRAPHICS_VULKAN_INSTANCE_CREATE;
 
     return GRAPHICS_OK;
 }
 
 static VkSurfaceKHR graphics_create_surface()
 {
-    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    VkSurfaceKHR surface = NULL;
     VkResult result = VK_SUCCESS;
     Window_creation_info window_info = {};
 
@@ -347,54 +481,54 @@ static VkSurfaceKHR graphics_create_surface()
 
     VkWin32SurfaceCreateInfoKHR surface_create_info = {
         .sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
-        .pNext = VK_NULL_HANDLE,
+        .pNext = NULL,
         .flags = 0,
         .hwnd = window_info.hwnd,
         .hinstance = window_info.hinstance
     };
 
-    result = vkCreateWin32SurfaceKHR(graphics_vulkan_instance, &surface_create_info, VK_NULL_HANDLE, &surface);
+    result = vkCreateWin32SurfaceKHR(graphics_vulkan_instance, &surface_create_info, NULL, &surface);
 
 #elif defined(__APPLE__)
 
     VkMacOSSurfaceCreateInfoMVK  surface_create_info = {
         .sType = VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK,
-        .pNext = VK_NULL_HANDLE,
+        .pNext = NULL,
         .flags = 0,
         .pView = window_info.pView
     };
 
-    result = vkCreateMacOSSurfaceMVK(graphics_vulkan_instance, &surface_create_info, VK_NULL_HANDLE, &surface);
+    result = vkCreateMacOSSurfaceMVK(graphics_vulkan_instance, &surface_create_info, NULL, &surface);
 
 #elif defined(GLFW_EXPOSE_NATIVE_WAYLAND)
 
 
     VkWaylandSurfaceCreateInfoKHR  surface_create_info = {
         .sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
-        .pNext = VK_NULL_HANDLE,
+        .pNext = NULL,
         .flags = 0,
         .display = window_info.display,
         .surface = window_info.surface
     };
 
-    result = vkCreateWaylandSurfaceKHR(graphics_vulkan_instance, &surface_create_info, VK_NULL_HANDLE, &surface);
+    result = vkCreateWaylandSurfaceKHR(graphics_vulkan_instance, &surface_create_info, NULL, &surface);
 
 #else 
 
 // TODO: MID_PRIO Change from Xlib to Xcb after GLFW 3.5 release.
     VkWaylandSurfaceCreateInfoKHR  surface_create_info = {
         .sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
-        .pNext = VK_NULL_HANDLE,
+        .pNext = NULL,
         .flags = 0,
         .dpy = window_info.dpy,
         .window = window_info.window
     };
 
-    result = vkCreateXlibSurfaceKHR(graphics_vulkan_instance, &surface_create_info, VK_NULL_HANDLE, &surface);
+    result = vkCreateXlibSurfaceKHR(graphics_vulkan_instance, &surface_create_info, NULL, &surface);
 
 #endif
 
-    if(result != VK_SUCCESS) return VK_NULL_HANDLE;
+    if(result != VK_SUCCESS) return NULL;
 
     return surface;
 }
@@ -407,7 +541,7 @@ static bool graphics_is_device_usable(
                                         VkQueueFlags desired_queue_features
                                      )
 {
-    assert(graphics_surface != VK_NULL_HANDLE);
+    assert(graphics_surface != NULL);
 
     uint32_t extension_count = 0;
     vkEnumerateDeviceExtensionProperties(device, NULL, &extension_count, NULL);
@@ -451,7 +585,7 @@ static bool graphics_is_device_usable(
 
     uint32_t queue_families_count = 0;
 
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_families_count, VK_NULL_HANDLE);
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_families_count, NULL);
 
     VkQueueFamilyProperties* queue_families = (VkQueueFamilyProperties*)malloc(queue_families_count * sizeof(VkQueueFamilyProperties));
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_families_count, queue_families);
@@ -485,12 +619,12 @@ static VkPhysicalDevice graphics_pick_device(
                                         VkPhysicalDeviceFeatures* desired_features,
                                         VkQueueFlags desired_queue_features)
 {
-    VkPhysicalDevice picked_device = VK_NULL_HANDLE;
+    VkPhysicalDevice picked_device = NULL;
     
     uint32_t device_count = 0;
     vkEnumeratePhysicalDevices(graphics_vulkan_instance, &device_count, NULL);
 
-    if(device_count == 0) return VK_NULL_HANDLE;
+    if(device_count == 0) return NULL;
 
     VkPhysicalDevice* devices = (VkPhysicalDevice*)malloc(device_count * sizeof(VkPhysicalDevice));
     vkEnumeratePhysicalDevices(graphics_vulkan_instance, &device_count, devices);
@@ -539,12 +673,12 @@ static VkPhysicalDevice graphics_pick_device(
 
 static Graphics_queue_properties graphics_pick_queue_family(VkPhysicalDevice device, VkQueueFlags desired_queue_features)
 {
-    assert(graphics_surface != VK_NULL_HANDLE);
+    assert(graphics_surface != NULL);
 
     uint32_t queue_families_count = 0;
     Graphics_queue_properties queue_family_properties = {.index = UINT32_MAX, .properties = {}};
 
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_families_count, VK_NULL_HANDLE);
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_families_count, NULL);
 
     VkQueueFamilyProperties* queue_families = (VkQueueFamilyProperties*)malloc(queue_families_count * sizeof(VkQueueFamilyProperties));
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_families_count, queue_families);
